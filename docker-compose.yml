@@ -1,0 +1,11 @@
+services:
+  ci:
+    build: .
+    image: gsd-plugin-ci:local
+    volumes:
+      - .:/workspace:rw
+      - maven-repo:/root/.m2
+    working_dir: /workspace
+
+volumes:
+  maven-repo:

@@ -1,0 +1,8 @@
+target/
+work/
+.git/
+.idea/
+*.iml
+.flattened-pom.xml
+*.hpi
+*.war

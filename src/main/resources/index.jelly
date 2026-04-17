@@ -1,0 +1,5 @@
+<?jelly escape-by-default='true'?>
+<div>
+  GSD adds Pipeline-oriented pull request automation and AI-assisted review. This is an early skeleton intended for
+  <a href="https://www.jenkins.io/doc/developer/publishing/requesting-hosting/">Update Center hosting</a>.
+</div>
