@@ -17,6 +17,7 @@ public final class GsdGlobalConfiguration extends GlobalConfiguration {
     private String defaultAnthropicModel = "claude-sonnet-4-20250514";
     private int defaultMaxDiffLines = 500;
     private String anthropicBaseUrl = "https://api.anthropic.com";
+    private String defaultGithubApiUrl = "https://api.github.com";
 
     public GsdGlobalConfiguration() {
         load();
@@ -54,6 +55,16 @@ public final class GsdGlobalConfiguration extends GlobalConfiguration {
     public void setAnthropicBaseUrl(String anthropicBaseUrl) {
         String v = Util.fixEmptyAndTrim(anthropicBaseUrl);
         this.anthropicBaseUrl = v == null ? "https://api.anthropic.com" : v.replaceAll("/+$", "");
+    }
+
+    public String getDefaultGithubApiUrl() {
+        return defaultGithubApiUrl;
+    }
+
+    @DataBoundSetter
+    public void setDefaultGithubApiUrl(String defaultGithubApiUrl) {
+        String v = Util.fixEmptyAndTrim(defaultGithubApiUrl);
+        this.defaultGithubApiUrl = v == null ? "https://api.github.com" : v.replaceAll("/+$", "");
     }
 
     @Override

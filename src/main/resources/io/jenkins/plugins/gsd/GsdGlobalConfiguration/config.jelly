@@ -10,5 +10,8 @@
     <f:entry title="${%Default max diff lines}" field="defaultMaxDiffLines">
       <f:number clazz="positive-number-required" min="1" default="500"/>
     </f:entry>
+    <f:entry title="${%Default GitHub API URL}" field="defaultGithubApiUrl">
+      <f:textbox placeholder="https://api.github.com"/>
+    </f:entry>
   </f:section>
 </j:jelly>

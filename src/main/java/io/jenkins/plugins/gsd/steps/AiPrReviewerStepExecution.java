@@ -3,12 +3,11 @@ package io.jenkins.plugins.gsd.steps;
 import com.cloudbees.plugins.credentials.CredentialsMatchers;
 import com.cloudbees.plugins.credentials.CredentialsProvider;
 import com.cloudbees.plugins.credentials.domains.DomainRequirement;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.AbortException;
 import hudson.FilePath;
 import hudson.model.Job;
-import hudson.model.Queue;
 import hudson.model.Run;
-import hudson.model.queue.Tasks;
 import hudson.model.TaskListener;
 import hudson.security.ACL;
 import io.jenkins.plugins.gsd.AnthropicMessages;
@@ -54,14 +53,23 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
         String[] coords = parseRepository(step.getRepository());
         String owner = coords[0];
         String repo = coords[1];
-        String prUrl = "https://github.com/" + owner + "/" + repo + "/pull/" + step.getPrNumber();
+
+        GsdGlobalConfiguration global = GsdGlobalConfiguration.get();
+        String githubApiUrl = resolveGithubApiUrl(global);
+        String prUrl = normalizeGithubBaseUrl(githubApiUrl) + "/" + owner + "/" + repo + "/pull/" + step.getPrNumber();
 
         String gitToken = resolveSecret(step.getCredentialsId(), run);
-        GsdGlobalConfiguration global = GsdGlobalConfiguration.get();
 
         switch (action) {
-            case "reviewpr" -> runReview(owner, repo, gitToken, global, run, listener, ws, prUrl);
-            case "commentpr" -> runComment(owner, repo, gitToken, listener);
+            case "reviewpr" -> {
+                if (!step.isEnableAiReview()) {
+                    listener.getLogger()
+                            .println("[GSD] AI review skipped because enableAiReview=false.");
+                    return null;
+                }
+                runReview(owner, repo, gitToken, global, githubApiUrl, run, listener, ws, prUrl);
+            }
+            case "commentpr" -> runComment(owner, repo, gitToken, githubApiUrl, listener);
             case "createpr" -> throw new AbortException(
                     "action 'createPR' is not implemented in this GSD plugin version yet.");
             default -> throw new AbortException("Unknown action '" + step.getAction()
@@ -70,13 +78,14 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
         return null;
     }
 
-    private void runComment(String owner, String repo, String gitToken, TaskListener listener)
+    private void runComment(
+            String owner, String repo, String gitToken, String githubApiUrl, TaskListener listener)
             throws IOException, InterruptedException {
         String body = step.getCommentBody();
         if (body == null || body.isBlank()) {
             throw new AbortException("commentBody is required when action is commentPR.");
         }
-        GithubRest.postIssueComment(gitToken, owner, repo, step.getPrNumber(), body);
+        GithubRest.postIssueComment(gitToken, owner, repo, step.getPrNumber(), body, githubApiUrl);
         listener.getLogger().println("[GSD] Posted comment on pull request #" + step.getPrNumber());
     }
 
@@ -85,20 +94,31 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
             String repo,
             String gitToken,
             GsdGlobalConfiguration global,
+            String githubApiUrl,
             Run<?, ?> run,
             TaskListener listener,
             FilePath ws,
             String prUrl)
             throws Exception {
-        if (!step.isEnableAiReview()) {
-            throw new AbortException("enableAiReview=false is not supported for reviewPR.");
-        }
-        String diff = GithubRest.fetchPullRequestDiff(gitToken, owner, repo, step.getPrNumber());
+        // Fetch diff
+        String diff = GithubRest.fetchPullRequestDiff(gitToken, owner, repo, step.getPrNumber(), githubApiUrl);
         int max = step.getMaxDiffLines() != null && step.getMaxDiffLines() > 0
                 ? step.getMaxDiffLines()
                 : global.getDefaultMaxDiffLines();
         String truncated = truncateLines(diff, max, listener);
 
+        // Fetch PR metadata (title + description) for richer review context
+        GithubRest.PullRequestMeta meta = null;
+        try {
+            meta = GithubRest.fetchPullRequestMeta(gitToken, owner, repo, step.getPrNumber(), githubApiUrl);
+        } catch (IOException ex) {
+            listener.getLogger()
+                    .println("[GSD] Could not fetch PR metadata (continuing without it): " + ex.getMessage());
+        }
+        String prTitle = meta != null ? meta.title() : null;
+        String prBody = meta != null ? meta.body() : null;
+
+        // Resolve AI settings
         String model = step.getAiModel() != null && !step.getAiModel().isBlank()
                 ? step.getAiModel()
                 : global.getDefaultAnthropicModel();
@@ -107,13 +127,25 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
                 ? step.getAiBaseUrl()
                 : global.getAnthropicBaseUrl();
 
-        String prompt = ReviewPrompt.build(step.getRepository(), step.getPrNumber(), truncated);
+        // Build and send prompt
+        String prompt = ReviewPrompt.build(step.getRepository(), step.getPrNumber(), prTitle, prBody, truncated);
         listener.getLogger().println("[GSD] Calling Anthropic model " + model + "…");
         String raw = AnthropicMessages.complete(apiKey, baseUrl, model, prompt);
         ReviewPrompt.ParsedReview parsed = ReviewPrompt.parseModelOutput(raw);
 
-        String markdown = buildPostedBody(parsed, raw);
-        GithubRest.postIssueComment(gitToken, owner, repo, step.getPrNumber(), markdown);
+        // Post review — use GitHub PR Review API for a proper APPROVE / REQUEST_CHANGES / COMMENT
+        String markdown = buildPostedBody(parsed, raw, prTitle);
+        String reviewEvent = verdictToReviewEvent(parsed.verdict());
+        try {
+            GithubRest.postPullRequestReview(
+                    gitToken, owner, repo, step.getPrNumber(), markdown, reviewEvent, githubApiUrl);
+        } catch (IOException ex) {
+            // Fall back to a plain comment if the review API fails (e.g. insufficient token scope)
+            listener.getLogger()
+                    .println("[GSD] PR Review API failed (" + ex.getMessage() + "); falling back to issue comment.");
+            GithubRest.postIssueComment(gitToken, owner, repo, step.getPrNumber(), markdown, githubApiUrl);
+        }
+
         listener.getLogger().println("[GSD] Posted AI review on pull request #" + step.getPrNumber());
         listener.getLogger().println("[GSD] Verdict=" + parsed.verdict() + " issues=" + parsed.issues());
 
@@ -121,12 +153,24 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
         writeWorkspaceSummary(ws, parsed, prUrl, listener);
     }
 
-    private static String buildPostedBody(ReviewPrompt.ParsedReview parsed, String raw) {
+    /** Maps a verdict string to a GitHub PR review event. */
+    private static String verdictToReviewEvent(@NonNull String verdict) {
+        return switch (verdict) {
+            case "lgtm" -> "APPROVE";
+            case "critical" -> "REQUEST_CHANGES";
+            default -> "COMMENT";
+        };
+    }
+
+    private static String buildPostedBody(ReviewPrompt.ParsedReview parsed, String raw, String prTitle) {
         String body = parsed.markdownBody();
         if (body == null || body.isBlank()) {
             body = raw == null ? "_Empty review response._" : raw;
         }
-        return "<!-- gsd-plugin ai review -->\n\n" + body;
+        String titleLine = prTitle != null && !prTitle.isBlank()
+                ? "**PR: " + prTitle + "**\n\n"
+                : "";
+        return "<!-- gsd-plugin ai review -->\n\n" + titleLine + body;
     }
 
     private static void writeWorkspaceSummary(
@@ -182,14 +226,32 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
         return new String[] {r.substring(0, slash), r.substring(slash + 1)};
     }
 
+    /**
+     * Resolves the effective GitHub API URL from step override → global default → built-in default.
+     * Returns e.g. {@code https://api.github.com} or {@code https://github.example.com/api/v3}.
+     */
+    private String resolveGithubApiUrl(GsdGlobalConfiguration global) {
+        if (step.getGithubApiUrl() != null && !step.getGithubApiUrl().isBlank()) {
+            return step.getGithubApiUrl().strip().replaceAll("/+$", "");
+        }
+        return global.getDefaultGithubApiUrl();
+    }
+
+    /**
+     * Derives the human-facing GitHub base URL from the API URL.
+     * {@code https://api.github.com} → {@code https://github.com}
+     * Everything else (GitHub Enterprise) is returned as-is after stripping trailing slashes.
+     */
+    private static String normalizeGithubBaseUrl(String apiUrl) {
+        if (apiUrl == null || apiUrl.isBlank() || "https://api.github.com".equals(apiUrl)) {
+            return "https://github.com";
+        }
+        return apiUrl.replaceAll("/+$", "");
+    }
+
     private static String resolveSecret(String credentialsId, Run<?, ?> run) throws AbortException {
         Job<?, ?> job = run.getParent();
-        Authentication auth = job instanceof Queue.Task
-                ? Tasks.getAuthenticationOf((Queue.Task) job)
-                : ACL.SYSTEM;
-        if (auth == null) {
-            auth = ACL.SYSTEM;
-        }
+        Authentication auth = ACL.SYSTEM;
         StringCredentials cred = CredentialsMatchers.firstOrNull(
                 CredentialsProvider.lookupCredentials(
                         StringCredentials.class,

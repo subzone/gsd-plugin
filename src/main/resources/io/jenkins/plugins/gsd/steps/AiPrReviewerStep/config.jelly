@@ -36,6 +36,9 @@
     <f:entry title="${%Anthropic base URL}" field="aiBaseUrl">
       <f:textbox/>
     </f:entry>
+    <f:entry title="${%GitHub API URL}" field="githubApiUrl">
+      <f:textbox placeholder="https://github.example.com/api/v3"/>
+    </f:entry>
     <f:entry title="${%Comment body (commentPR)}" field="commentBody">
       <f:textarea/>
     </f:entry>

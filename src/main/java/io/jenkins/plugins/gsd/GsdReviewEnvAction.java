@@ -11,7 +11,7 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
  * {@link EnvironmentContributingAction} (and for the build environment where supported).
  */
 @Restricted(NoExternalUse.class)
-public final class GsdReviewEnvAction implements EnvironmentContributingAction {
+public final class GsdReviewEnvAction implements EnvironmentContributingAction, java.io.Serializable {
 
     private static final long serialVersionUID = 1L;
 
