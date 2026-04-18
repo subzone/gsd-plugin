@@ -14,6 +14,7 @@ import io.jenkins.plugins.gsd.AnthropicMessages;
 import io.jenkins.plugins.gsd.GithubRest;
 import io.jenkins.plugins.gsd.GsdGlobalConfiguration;
 import io.jenkins.plugins.gsd.GsdReviewEnvAction;
+import io.jenkins.plugins.gsd.OpenAiMessages;
 import io.jenkins.plugins.gsd.ReviewPrompt;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -127,10 +128,15 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
                 ? step.getAiBaseUrl()
                 : global.getAnthropicBaseUrl();
 
+        // Resolve AI provider (step override → global default)
+        String aiProvider = step.getAiProvider() != null && !step.getAiProvider().isBlank()
+                ? step.getAiProvider()
+                : global.getDefaultAiProvider();
+
         // Build and send prompt
         String prompt = ReviewPrompt.build(step.getRepository(), step.getPrNumber(), prTitle, prBody, truncated);
-        listener.getLogger().println("[GSD] Calling Anthropic model " + model + "…");
-        String raw = AnthropicMessages.complete(apiKey, baseUrl, model, prompt);
+        listener.getLogger().println("[GSD] Calling " + aiProvider + " model " + model + "…");
+        String raw = callAiProvider(apiKey, baseUrl, model, prompt, aiProvider);
         ReviewPrompt.ParsedReview parsed = ReviewPrompt.parseModelOutput(raw);
 
         // Post review — use GitHub PR Review API for a proper APPROVE / REQUEST_CHANGES / COMMENT
@@ -153,9 +159,23 @@ public class AiPrReviewerStepExecution extends AbstractSynchronousNonBlockingSte
         writeWorkspaceSummary(ws, parsed, prUrl, listener);
     }
 
+    /**
+     * Routes the completion request to the correct AI backend.
+     *
+     * @param provider {@code "anthropic"} (default) or {@code "openai"} for any
+     *                 OpenAI-compatible endpoint (LiteLLM, vLLM, Ollama, …)
+     */
+    private static String callAiProvider(
+            String apiKey, String baseUrl, String model, String prompt, String provider)
+            throws IOException, InterruptedException {
+        if ("openai".equals(provider)) {
+            return OpenAiMessages.complete(apiKey, baseUrl, model, prompt);
+        }
+        return AnthropicMessages.complete(apiKey, baseUrl, model, prompt);
+    }
+
     /** Maps a verdict string to a GitHub PR review event. */
-    private static String verdictToReviewEvent(@NonNull String verdict) {
-        return switch (verdict) {
+    private static String verdictToReviewEvent(@NonNull String verdict) {        return switch (verdict) {
             case "lgtm" -> "APPROVE";
             case "critical" -> "REQUEST_CHANGES";
             default -> "COMMENT";

@@ -1,0 +1,182 @@
+/*
+ * Jenkinsfile-ai-pr — Test pipeline for the GSD AI PR Reviewer plugin.
+ *
+ * Prerequisites
+ * -------------
+ * 1. GSD plugin installed on this Jenkins (target/gsd.hpi).
+ * 2. Two Secret-text credentials created in Jenkins:
+ *      GITHUB_PAT_CREDENTIALS_ID  — GitHub Personal Access Token (repo scope)
+ *      LITELLM_CREDENTIALS_ID     — LiteLLM API key (or any string if your
+ *                                   instance runs without auth)
+ * 3. Your LiteLLM proxy exposes an Anthropic-compatible endpoint:
+ *      POST <LITELLM_BASE_URL>/v1/messages
+ *    Start LiteLLM with:
+ *      litellm --model <model> --port 4000
+ *    and set LITELLM_BASE_URL to e.g. http://your-host:4000
+ *
+ * Usage
+ * -----
+ * Create a Jenkins Pipeline job → Pipeline from SCM → Script Path: Jenkinsfile-ai-pr
+ * Build with Parameters to override defaults.
+ */
+pipeline {
+    agent any
+
+    parameters {
+        // --- Repository ---
+        string(
+            name: 'REPOSITORY',
+            defaultValue: 'subzone/gsd-plugin',
+            description: 'GitHub repository in owner/repo format')
+        string(
+            name: 'PR_NUMBER',
+            defaultValue: '',
+            description: 'Pull request number to review (required)')
+
+        // --- Credentials (can override the defaults below) ---
+        string(
+            name: 'GITHUB_CREDENTIALS_ID',
+            defaultValue: 'github-pat',
+            description: 'Jenkins credentials ID for the GitHub PAT')
+        string(
+            name: 'AI_CREDENTIALS_ID',
+            defaultValue: 'litellm-api-key',
+            description: 'Jenkins credentials ID for the LiteLLM API key')
+
+        // --- LiteLLM / AI settings ---
+        choice(
+            name: 'AI_PROVIDER',
+            choices: ['openai', 'anthropic'],
+            description: 'openai = LiteLLM / any OpenAI-compatible endpoint (Qwen, Llama, GPT…)\nanthropicl = direct Anthropic Claude API')
+        string(
+            name: 'LITELLM_BASE_URL',
+            defaultValue: 'http://localhost:4000',
+            description: 'LiteLLM base URL — used as the AI API base URL for both providers')
+        string(
+            name: 'AI_MODEL',
+            defaultValue: 'qwen/qwen3-235b-a22b',
+            description: 'Model name as configured in your LiteLLM router (e.g. qwen/qwen3-235b-a22b, gpt-4o, claude-sonnet-4-20250514)')
+        string(
+            name: 'MAX_DIFF_LINES',
+            defaultValue: '500',
+            description: 'Maximum diff lines to send to the model (truncated beyond this)')
+
+        // --- Behaviour ---
+        booleanParam(
+            name: 'POST_REVIEW',
+            defaultValue: true,
+            description: 'Post the AI review back to GitHub. Uncheck for dry-run (logs only).')
+        booleanParam(
+            name: 'FAIL_ON_CRITICAL',
+            defaultValue: false,
+            description: 'Fail the build when the AI verdict is "critical"')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timestamps()
+        timeout(time: 15, unit: 'MINUTES')
+        ansiColor('xterm')
+    }
+
+    stages {
+        stage('Validate') {
+            steps {
+                script {
+                    if (!params.PR_NUMBER?.trim()) {
+                        error('PR_NUMBER parameter is required.')
+                    }
+                    echo "Repository : ${params.REPOSITORY}"
+                    echo "PR         : #${params.PR_NUMBER}"
+                    echo "Provider   : ${params.AI_PROVIDER}"
+                    echo "Model      : ${params.AI_MODEL}"
+                    echo "LiteLLM    : ${params.LITELLM_BASE_URL}"
+                    echo "Post review: ${params.POST_REVIEW}"
+                }
+            }
+        }
+
+        stage('AI PR Review') {
+            steps {
+                script {
+                    if (params.POST_REVIEW) {
+                        aiPrReviewer(
+                            action          : 'reviewPR',
+                            provider        : 'github',
+                            credentialsId   : params.GITHUB_CREDENTIALS_ID,
+                            repository      : params.REPOSITORY,
+                            prNumber        : params.PR_NUMBER,
+                            aiCredentialsId : params.AI_CREDENTIALS_ID,
+                            aiProvider      : params.AI_PROVIDER,
+                            aiModel         : params.AI_MODEL,
+                            aiBaseUrl       : params.LITELLM_BASE_URL,
+                            maxDiffLines    : params.MAX_DIFF_LINES.toInteger(),
+                            enableAiReview  : true
+                        )
+                    } else {
+                        echo '[dry-run] Skipping GitHub post — enableAiReview set to false.'
+                        aiPrReviewer(
+                            action          : 'reviewPR',
+                            provider        : 'github',
+                            credentialsId   : params.GITHUB_CREDENTIALS_ID,
+                            repository      : params.REPOSITORY,
+                            prNumber        : params.PR_NUMBER,
+                            aiCredentialsId : params.AI_CREDENTIALS_ID,
+                            aiProvider      : params.AI_PROVIDER,
+                            aiModel         : params.AI_MODEL,
+                            aiBaseUrl       : params.LITELLM_BASE_URL,
+                            maxDiffLines    : params.MAX_DIFF_LINES.toInteger(),
+                            enableAiReview  : false
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Review Results') {
+            steps {
+                script {
+                    def verdict  = env.GSD_REVIEW_VERDICT     ?: 'n/a'
+                    def summary  = env.GSD_REVIEW_SUMMARY      ?: 'n/a'
+                    def issues   = env.GSD_REVIEW_TOTAL_ISSUES ?: '0'
+                    def prUrl    = env.GSD_PR_URL              ?: ''
+
+                    echo "╔══════════════════════════════════════╗"
+                    echo "║          GSD Review Results          ║"
+                    echo "╠══════════════════════════════════════╣"
+                    echo "║  Verdict : ${verdict.padRight(28)}║"
+                    echo "║  Issues  : ${issues.padRight(28)}║"
+                    echo "║  Summary : ${summary.take(28).padRight(28)}║"
+                    echo "╚══════════════════════════════════════╝"
+                    if (prUrl) {
+                        echo "PR URL: ${prUrl}"
+                    }
+
+                    // Optionally read the properties file written to the workspace
+                    def propsFile = '.gsd/last-review.properties'
+                    if (fileExists(propsFile)) {
+                        echo '--- .gsd/last-review.properties ---'
+                        echo readFile(propsFile)
+                    }
+
+                    // Fail the build if verdict is critical and the option is enabled
+                    if (params.FAIL_ON_CRITICAL && verdict == 'critical') {
+                        error("AI review verdict is CRITICAL — failing the build as requested.")
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: '.gsd/last-review.properties', allowEmptyArchive: true
+        }
+        success {
+            echo '[GSD] Pipeline completed successfully.'
+        }
+        failure {
+            echo '[GSD] Pipeline failed — check logs above for details.'
+        }
+    }
+}

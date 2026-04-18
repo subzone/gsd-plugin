@@ -27,6 +27,12 @@
     <c:select/>
   </f:entry>
   <f:advanced>
+    <f:entry title="${%AI provider}" field="aiProvider">
+      <f:select>
+        <f:option value="anthropic">anthropic (Claude)</f:option>
+        <f:option value="openai">openai (LiteLLM / OpenAI-compatible)</f:option>
+      </f:select>
+    </f:entry>
     <f:entry title="${%Anthropic model}" field="aiModel">
       <f:textbox/>
     </f:entry>

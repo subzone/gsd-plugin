@@ -42,6 +42,7 @@ public class AiPrReviewerStep extends Step implements Serializable {
     private Integer maxDiffLines;
     private String commentBody;
     private String aiBaseUrl;
+    private String aiProvider;
     private String githubApiUrl;
     private boolean enableAiReview = true;
 
@@ -119,6 +120,15 @@ public class AiPrReviewerStep extends Step implements Serializable {
     @DataBoundSetter
     public void setAiBaseUrl(String aiBaseUrl) {
         this.aiBaseUrl = aiBaseUrl == null ? null : aiBaseUrl.trim();
+    }
+
+    public String getAiProvider() {
+        return aiProvider;
+    }
+
+    @DataBoundSetter
+    public void setAiProvider(String aiProvider) {
+        this.aiProvider = aiProvider == null ? null : aiProvider.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     public String getGithubApiUrl() {

@@ -18,6 +18,7 @@ public final class GsdGlobalConfiguration extends GlobalConfiguration {
     private int defaultMaxDiffLines = 500;
     private String anthropicBaseUrl = "https://api.anthropic.com";
     private String defaultGithubApiUrl = "https://api.github.com";
+    private String defaultAiProvider = "anthropic";
 
     public GsdGlobalConfiguration() {
         load();
@@ -65,6 +66,16 @@ public final class GsdGlobalConfiguration extends GlobalConfiguration {
     public void setDefaultGithubApiUrl(String defaultGithubApiUrl) {
         String v = Util.fixEmptyAndTrim(defaultGithubApiUrl);
         this.defaultGithubApiUrl = v == null ? "https://api.github.com" : v.replaceAll("/+$", "");
+    }
+
+    public String getDefaultAiProvider() {
+        return defaultAiProvider;
+    }
+
+    @DataBoundSetter
+    public void setDefaultAiProvider(String defaultAiProvider) {
+        String v = Util.fixEmptyAndTrim(defaultAiProvider);
+        this.defaultAiProvider = v == null ? "anthropic" : v.toLowerCase(java.util.Locale.ROOT);
     }
 
     @Override

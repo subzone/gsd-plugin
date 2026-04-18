@@ -8,7 +8,6 @@ import java.io.IOException;
 import org.junit.Test;
 
 public class ReviewPromptTest {
-
     @Test
     public void parseModelOutput_readsHeaders() {
         String raw =
@@ -95,5 +94,26 @@ public class ReviewPromptTest {
     public void extractJsonStringField_returnsEmpty_onMissingField() {
         String json = "{\"title\":\"t\"}";
         assertEquals("", GithubRest.extractJsonStringField(json, "missing"));
+    }
+
+    // ── OpenAiMessages ───────────────────────────────────────────────────────
+
+    @Test
+    public void extractContent_readsAssistantMessage() throws IOException {
+        String response = "{\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,"
+                + "\"message\":{\"role\":\"assistant\",\"content\":\"Great PR!\"},"
+                + "\"finish_reason\":\"stop\"}]}";
+        assertEquals("Great PR!", OpenAiMessages.extractContent(response));
+    }
+
+    @Test
+    public void extractContent_handlesEscapes() throws IOException {
+        String response = "{\"choices\":[{\"message\":{\"content\":\"line1\\nline2\"}}]}";
+        assertEquals("line1\nline2", OpenAiMessages.extractContent(response));
+    }
+
+    @Test(expected = IOException.class)
+    public void extractContent_throwsOnMissingContent() throws IOException {
+        OpenAiMessages.extractContent("{\"choices\":[{\"message\":{\"role\":\"assistant\"}}]}");
     }
 }
