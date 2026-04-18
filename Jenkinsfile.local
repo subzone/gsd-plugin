@@ -2,8 +2,9 @@
  * Portable plugin build for your own Jenkins (not ci.jenkins.io).
  * Job: Pipeline from SCM → Script Path: Jenkinsfile.local
  *
- * Default: runs `docker compose run --rm ci` (same as README). Requires Docker (and Compose v2)
- * on the agent. Uncheck USE_DOCKER if the agent has JDK 17+ and `mvn` on PATH instead.
+ * Default: runs `docker compose run --rm ci` (same as README). Prepends common macOS paths
+ * so `docker` is found under Jenkins (Docker Desktop CLI, Homebrew). Uncheck USE_DOCKER if
+ * the agent has JDK 17+ and `mvn` on PATH. Optional: set agent env GSD_EXTRA_PATH (prefix for PATH).
  */
 pipeline {
     agent any
@@ -27,7 +28,20 @@ pipeline {
                 checkout scm
                 script {
                     if (params.USE_DOCKER) {
-                        sh 'docker compose run --rm ci'
+                        sh '''#!/bin/bash
+set -eu
+# Jenkins often starts with a minimal PATH; Docker Desktop / Homebrew are not on it.
+if [ -n "${GSD_EXTRA_PATH:-}" ]; then
+  export PATH="${GSD_EXTRA_PATH}:${PATH}"
+fi
+export PATH="/Applications/Docker.app/Contents/Resources/bin:/usr/local/bin:/opt/homebrew/bin:${PATH}"
+if ! command -v docker >/dev/null 2>&1; then
+  echo "docker not found after extending PATH (Docker.app, /usr/local/bin, /opt/homebrew/bin)."
+  echo "Install Docker Desktop, add docker to the agent PATH (Manage Jenkins → System), or disable USE_DOCKER and install Maven on the agent."
+  exit 127
+fi
+docker compose run --rm ci
+'''
                     } else {
                         sh 'mvn -B --no-transfer-progress verify'
                     }
