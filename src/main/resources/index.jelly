@@ -1,5 +1,6 @@
 <?jelly escape-by-default='true'?>
 <div>
-  GSD adds Pipeline-oriented pull request automation and AI-assisted review. This is an early skeleton intended for
-  <a href="https://www.jenkins.io/doc/developer/publishing/requesting-hosting/">Update Center hosting</a>.
+  GSD adds an <code>aiPrReviewer</code> Pipeline step for AI-assisted pull request review (GitHub + Anthropic),
+  in the spirit of the <a href="https://subzone.github.io/ad-ai-pr-reviewer/">AI PR Reviewer</a> Azure DevOps extension.
+  See <a href="https://www.jenkins.io/doc/developer/publishing/requesting-hosting/">Update Center hosting</a> for publication.
 </div>

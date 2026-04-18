@@ -1,0 +1,46 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:c="/lib/credentials">
+  <f:entry title="${%Action}" field="action">
+    <f:select>
+      <f:option value="reviewPR">reviewPR</f:option>
+      <f:option value="commentPR">commentPR</f:option>
+      <f:option value="createPR">createPR</f:option>
+    </f:select>
+  </f:entry>
+  <f:entry title="${%Git provider}" field="provider">
+    <f:select>
+      <f:option value="github">github</f:option>
+      <f:option value="gitlab">gitlab</f:option>
+      <f:option value="bitbucket">bitbucket</f:option>
+    </f:select>
+  </f:entry>
+  <f:entry title="${%Git host token}" field="credentialsId">
+    <c:select/>
+  </f:entry>
+  <f:entry title="${%Repository}" field="repository">
+    <f:textbox placeholder="org/repo"/>
+  </f:entry>
+  <f:entry title="${%Pull request number}" field="prNumber">
+    <f:textbox/>
+  </f:entry>
+  <f:entry title="${%Anthropic API key}" field="aiCredentialsId">
+    <c:select/>
+  </f:entry>
+  <f:advanced>
+    <f:entry title="${%Anthropic model}" field="aiModel">
+      <f:textbox/>
+    </f:entry>
+    <f:entry title="${%Max diff lines}" field="maxDiffLines">
+      <f:number clazz="positive-number-required" min="1"/>
+    </f:entry>
+    <f:entry title="${%Anthropic base URL}" field="aiBaseUrl">
+      <f:textbox/>
+    </f:entry>
+    <f:entry title="${%Comment body (commentPR)}" field="commentBody">
+      <f:textarea/>
+    </f:entry>
+    <f:entry title="${%Enable AI review}" field="enableAiReview">
+      <f:checkbox default="true"/>
+    </f:entry>
+  </f:advanced>
+</j:jelly>
