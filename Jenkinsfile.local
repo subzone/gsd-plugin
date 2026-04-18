@@ -1,0 +1,34 @@
+/*
+ * Portable plugin build for your own Jenkins (not ci.jenkins.io).
+ * Job: New Item → Pipeline → Pipeline script from SCM → Script Path: Jenkinsfile.local
+ *
+ * Agent needs JDK 17+ and `mvn` on PATH. If the agent only has Docker, replace the Verify
+ * stage body with: sh 'docker compose run --rm ci'
+ */
+pipeline {
+    agent any
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '15'))
+        timestamps()
+        timeout(time: 1, unit: 'HOURS')
+    }
+
+    stages {
+        stage('Verify') {
+            steps {
+                checkout scm
+                sh 'mvn -B --no-transfer-progress verify'
+            }
+        }
+    }
+
+    post {
+        always {
+            junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: true
+        }
+        success {
+            archiveArtifacts artifacts: 'target/*.hpi', fingerprint: true
+        }
+    }
+}
