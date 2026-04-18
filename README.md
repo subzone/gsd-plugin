@@ -29,7 +29,9 @@ docker compose run --rm ci
 
 ### Build on your own Jenkins
 
-The root `Jenkinsfile` uses `buildPlugin` and only works on [ci.jenkins.io](https://ci.jenkins.io) with the infra pipeline library. For your controller, create a **Pipeline** job from this repo and set **Script Path** to **`Jenkinsfile.local`**. The agent needs **JDK 17+** and **Maven** on `PATH`; otherwise change the Verify stage to `sh 'docker compose run --rm ci'` (Docker required on the agent).
+The root `Jenkinsfile` uses `buildPlugin` and only works on [ci.jenkins.io](https://ci.jenkins.io) with the infra pipeline library. For your controller, create a **Pipeline** job from this repo and set **Script Path** to **`Jenkinsfile.local`**.
+
+By default that pipeline runs **`docker compose run --rm ci`**, so the agent needs **Docker** (Compose v2: `docker compose`) and permission to talk to the daemon. If the agent already has **JDK 17+** and **Maven** on `PATH`, disable the **USE_DOCKER** build parameter (or set it false after the first run populates parameters).
 
 ## Pipeline (`aiPrReviewer`)
 
